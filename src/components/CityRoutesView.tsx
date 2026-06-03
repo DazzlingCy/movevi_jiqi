@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ChevronLeft, Lock, Star, Clock, MapPin, Award, Trophy, Compass, Sparkles, BarChart2, Radio, Sliders } from 'lucide-react';
+import { ChevronLeft, Lock, Star, Clock, MapPin, Award, Trophy, Compass, Sparkles, BarChart2, Radio, Sliders, X } from 'lucide-react';
 import { CityData, getRouteData } from '../data/cities';
 
 interface CityRoutesViewProps {
@@ -51,10 +51,164 @@ const UNLOCKED_MEDALS_COUNT_BY_CITY: Record<string, number> = {
   '7': 2, // 巴黎
 };
 
+const getCalculatedStats = (baseDistance: string, baseDuration: string, baseCalories: string, mode: 1 | 2 | 3) => {
+  const dist = parseFloat(baseDistance) || 5.0;
+  const cal = parseInt(baseCalories) || 300;
+  
+  let totalSeconds = 1800;
+  if (baseDuration.includes(':')) {
+    const parts = baseDuration.split(':');
+    if (parts.length === 2) {
+      totalSeconds = (parseInt(parts[0]) || 0) * 60 + (parseInt(parts[1]) || 0);
+    }
+  } else {
+    totalSeconds = (parseInt(baseDuration) || 30) * 60;
+  }
+
+  let distCoeff = 1.0;
+  let timeCoeff = 1.0;
+  let calCoeff = 1.0;
+
+  if (mode === 1) {
+    distCoeff = 0.73;
+    timeCoeff = 0.82;
+    calCoeff = 0.68;
+  } else if (mode === 3) {
+    distCoeff = 1.34;
+    timeCoeff = 1.28;
+    calCoeff = 1.45;
+  }
+
+  const finalDist = (dist * distCoeff).toFixed(1);
+  const finalCal = Math.round(cal * calCoeff);
+  
+  const finalSeconds = Math.round(totalSeconds * timeCoeff);
+  const finalMin = Math.floor(finalSeconds / 60);
+  const finalSec = finalSeconds % 60;
+  const finalDurationStr = `${String(finalMin).padStart(2, '0')}:${String(finalSec).padStart(2, '0')}`;
+
+  return {
+    distance: finalDist,
+    calories: finalCal,
+    duration: finalDurationStr
+  };
+};
+
+const getMapSpots = (cityId: string, routeId: number) => {
+  const configs: Record<string, Record<number, { title: string, path: string, points: any[], bg: string }>> = {
+    '1': { // 杭州
+      1: {
+        title: '沿西湖：断桥-苏堤-平湖秋月点',
+        path: 'M 30 75 Q 50 45 70 40 T 110 30 T 150 70',
+        points: [
+          { name: '古茗附近 (起点)', x: 30, y: 75, type: 'start' },
+          { name: '西湖断桥', x: 70, y: 40, type: 'waypoint' },
+          { name: '苏堤春晓', x: 110, y: 30, type: 'waypoint' },
+          { name: '孤山胜地', x: 150, y: 70, type: 'end' }
+        ],
+        bg: 'from-cyan-900/10 to-teal-900/10'
+      },
+      2: {
+        title: '九溪十八涧：灵隐幽梦点',
+        path: 'M 25 80 C 40 60, 50 30, 90 40 S 130 80, 160 50',
+        points: [
+          { name: '古井泉眼', x: 25, y: 80, type: 'start' },
+          { name: '听雨阁', x: 90, y: 40, type: 'waypoint' },
+          { name: '灵隐茶岭', x: 160, y: 50, type: 'end' }
+        ],
+        bg: 'from-emerald-950/10 to-teal-950/20'
+      },
+      3: {
+        title: '沿江：钱塘潮起未来线点',
+        path: 'M 20 50 L 80 50 L 140 50 L 180 50',
+        points: [
+          { name: '市民公园', x: 20, y: 50, type: 'start' },
+          { name: '大剧院前廊', x: 140, y: 50, type: 'waypoint' },
+          { name: '城市阳台', x: 180, y: 50, type: 'end' }
+        ],
+        bg: 'from-blue-950/10 to-indigo-950/16'
+      }
+    },
+    '2': { // 北京
+      1: {
+        title: '钟鼓楼-什刹海-南锣鼓巷环线点',
+        path: 'M 35 85 Q 40 45 75 40 T 120 30 T 155 75',
+        points: [
+          { name: '钟鼓楼广场', x: 35, y: 85, type: 'start' },
+          { name: '银锭桥后海', x: 75, y: 40, type: 'waypoint' },
+          { name: '南锣鼓巷', x: 120, y: 30, type: 'waypoint' },
+          { name: '北锣深巷', x: 155, y: 75, type: 'end' }
+        ],
+        bg: 'from-amber-950/15 to-red-950/10'
+      },
+      2: {
+        title: '奥林匹克公园无限跑道点',
+        path: 'M 40 80 Q 70 80 70 40 T 100 40 T 140 70',
+        points: [
+          { name: '仰山南麓', x: 40, y: 80, type: 'start' },
+          { name: '奥运湖滨', x: 100, y: 40, type: 'waypoint' },
+          { name: '宣言纪念广场', x: 140, y: 70, type: 'end' }
+        ],
+        bg: 'from-emerald-950/10 to-cyan-950/10'
+      }
+    }
+  };
+
+  const cityConfigs = configs[cityId];
+  if (cityConfigs && cityConfigs[routeId]) {
+    return cityConfigs[routeId];
+  }
+
+  return {
+    title: '城市探索·人文秘境跑道线',
+    path: 'M 30 75 Q 70 50 110 40 T 160 65',
+    points: [
+      { name: '初始集散地', x: 30, y: 75, type: 'start' },
+      { name: '地标打卡站', x: 110, y: 40, type: 'waypoint' },
+      { name: '光芒终点站', x: 160, y: 65, type: 'end' }
+    ],
+    bg: 'from-slate-900/20 to-cyan-950/10'
+  };
+};
+
+const PaceChart = () => {
+  return (
+    <svg className="w-full h-10 text-[#10b981]" viewBox="0 0 300 50" fill="none">
+      <path 
+        d="M 0 32 C 15 25, 30 18, 45 28 C 60 38, 75 14, 90 22 C 105 30, 120 40, 135 25 C 150 10, 165 42, 180 30 C 195 18, 210 20, 225 12 C 240 4, 255 35, 270 28 C 285 21, 292 24, 300 20" 
+        stroke="url(#paceGradient)" 
+        strokeWidth="3.5" 
+        strokeLinecap="round" 
+        strokeLinejoin="round"
+      />
+      <path 
+        d="M 0 32 C 15 25, 30 18, 45 28 C 60 38, 75 14, 90 22 C 105 30, 120 40, 135 25 C 150 10, 165 42, 180 30 C 195 18, 210 20, 225 12 C 240 4, 255 35, 270 28 C 285 21, 292 24, 300 20 L 300 50 L 0 50 Z" 
+        fill="url(#paceAreaGradient)" 
+        opacity="0.08"
+      />
+      <defs>
+        <linearGradient id="paceGradient" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stopColor="#ff9f43" />
+          <stop offset="50%" stopColor="#10b981" />
+          <stop offset="100%" stopColor="#ff5252" />
+        </linearGradient>
+        <linearGradient id="paceAreaGradient" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#10b981" />
+          <stop offset="100%" stopColor="#10b981" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+    </svg>
+  );
+};
+
 export default function CityRoutesView({ city, onBack, onRouteClick, onExploreNext }: CityRoutesViewProps) {
   const [showLitModal, setShowLitModal] = useState(false);
   const [isCardFlipped, setIsCardFlipped] = useState(false);
   const [isLightingUp, setIsLightingUp] = useState(false);
+
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [detailRouteId, setDetailRouteId] = useState<number | null>(null);
+  const [activeMode, setActiveMode] = useState<1 | 2 | 3>(2);
 
   // Time clock ticker inside the treadmill dashboard
   const [currentTime, setCurrentTime] = useState('');
@@ -310,6 +464,9 @@ export default function CityRoutesView({ city, onBack, onRouteClick, onExploreNe
                   onClick={() => {
                     if (isRouteUnlocked) {
                       setSelectedRouteId(routeId);
+                      setDetailRouteId(routeId);
+                      setActiveMode(2); // 默认标准模式
+                      setShowDetailModal(true);
                     }
                   }}
                   className={`border rounded-2xl p-4 flex gap-4 transition-all duration-300 relative overflow-hidden h-[126px] group ${
@@ -394,15 +551,9 @@ export default function CityRoutesView({ city, onBack, onRouteClick, onExploreNe
             })}
           </div>
 
-          {/* Sticky run trigger button */}
-          <div className="pt-4 border-t border-white/5 shrink-0 bg-transparent flex justify-center">
-            <button 
-              type="button"
-              onClick={() => onRouteClick(selectedRouteId)}
-              className="w-full py-4 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black rounded-xl transition-all tracking-widest shadow-[0_0_20px_rgba(34,211,238,0.25)] hover:shadow-[0_0_30px_rgba(34,211,238,0.4)] active:scale-98 cursor-pointer text-xs uppercase"
-            >
-              启动探索光道 RUN NOW
-            </button>
+          {/* 取消了原有的启动探索光道按钮，点击路线直接呼出配置详情弹窗 */}
+          <div className="pt-2 text-center text-[10px] text-slate-500 font-black tracking-widest uppercase shrink-0">
+            👋 点击上方任意路线，即刻配置并启动实景探索
           </div>
 
         </div>
@@ -639,6 +790,265 @@ export default function CityRoutesView({ city, onBack, onRouteClick, onExploreNe
               </motion.div>
           </motion.div>
         )}
+      </AnimatePresence>
+
+      {/* 路线模式详情弹窗 - 100% 适配横屏质感拟物设计 */}
+      <AnimatePresence>
+        {showDetailModal && detailRouteId !== null && (() => {
+          const rData = getRouteData(city.id, detailRouteId);
+          const mapConfig = getMapSpots(city.id, detailRouteId);
+          const stats = getCalculatedStats(rData.distance, rData.duration, rData.calories, activeMode);
+
+          // 模式切换说明
+          const modeSlogans = {
+            1: "运动量较轻，节奏缓和，适合日常慢走、拉伸恢复及新手热身。",
+            2: "运动量适中，强度科学分配，适合有一定运动基础，想要提升体能的用户。",
+            3: "高心率强燃脂，挑战体能极限！适合专业训练与深度爆汗塑形。"
+          };
+
+          return (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[120] bg-black/85 backdrop-blur-md flex items-center justify-center p-4 sm:p-6"
+            >
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 30 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 30 }}
+                transition={{ type: "spring", damping: 25, stiffness: 180 }}
+                className="w-full max-w-[840px] bg-white text-slate-800 rounded-3xl overflow-hidden shadow-[0_24px_64px_rgba(0,0,0,0.5)] border border-slate-200/50 flex flex-col relative"
+              >
+                
+                {/* 顶部彩色选项卡 Tabs - 100% 还原拟物跑步机设计 */}
+                <div className="flex w-full items-stretch h-[56px] border-b border-slate-100 bg-slate-100/50 relative shrink-0">
+                  <div className="grid grid-cols-3 flex-1 h-full font-sans">
+                    {/* 放松模式 */}
+                    <button
+                      type="button"
+                      onClick={() => setActiveMode(1)}
+                      className={`flex items-center justify-center text-xs sm:text-sm font-black tracking-widest transition-all ${
+                        activeMode === 1
+                          ? 'bg-[#ff9f43] text-white shadow-[inset_0_4px_0_rgba(255,255,255,0.2)]'
+                          : 'text-slate-500 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 cursor-pointer'
+                      }`}
+                    >
+                      1. 放松模式
+                    </button>
+
+                    {/* 标准模式 */}
+                    <button
+                      type="button"
+                      onClick={() => setActiveMode(2)}
+                      className={`flex items-center justify-center text-xs sm:text-sm font-black tracking-widest transition-all ${
+                        activeMode === 2
+                          ? 'bg-[#10b981] text-white shadow-[inset_0_4px_0_rgba(255,255,255,0.2)]'
+                          : 'text-slate-500 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 cursor-pointer'
+                      }`}
+                    >
+                      2. 标准模式
+                    </button>
+
+                    {/* 暴汗模式 */}
+                    <button
+                      type="button"
+                      onClick={() => setActiveMode(3)}
+                      className={`flex items-center justify-center text-xs sm:text-sm font-black tracking-widest transition-all ${
+                        activeMode === 3
+                          ? 'bg-[#ff5252] text-white shadow-[inset_0_4px_0_rgba(255,255,255,0.2)]'
+                          : 'text-slate-500 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 cursor-pointer'
+                      }`}
+                    >
+                      3. 暴汗模式
+                    </button>
+                  </div>
+
+                  {/* 右侧关闭按钮 */}
+                  <button
+                    type="button"
+                    onClick={() => setShowDetailModal(false)}
+                    className="w-14 flex items-center justify-center border-l border-slate-200 bg-slate-200/30 hover:bg-red-500 hover:text-white transition-colors cursor-pointer text-slate-400"
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+
+                {/* 弹窗主体 - 左右内容对齐 */}
+                <div className="flex-1 p-5 sm:p-6 overflow-y-auto grid grid-cols-1 md:grid-cols-12 gap-5 sm:gap-6">
+                  
+                  {/* 左侧：模式语录、路线标题、精美自绘虚线地图 */}
+                  <div className="md:col-span-6 flex flex-col justify-between space-y-3">
+                    <div className="space-y-1">
+                      {/* 动态强度推荐语 */}
+                      <p className={`text-[10px] sm:text-xs font-black tracking-wider uppercase ${
+                        activeMode === 1 ? 'text-[#ff9f43]' : activeMode === 2 ? 'text-[#10b981]' : 'text-[#ff5252]'
+                      }`}>
+                        {modeSlogans[activeMode]}
+                      </p>
+                      {/* 大标题 */}
+                      <h2 className="text-xl sm:text-2xl font-black text-slate-800 tracking-tight leading-tight">
+                        {mapConfig.title}
+                      </h2>
+                    </div>
+
+                    {/* 自绘极简水域网格地图盒子 */}
+                    <div className="flex-1 min-h-[180px] sm:min-h-[220px] bg-[#f1f5f9] border border-slate-200 rounded-3xl relative p-4 overflow-hidden shadow-sm flex flex-col justify-between">
+                      {/* 背景微网格 */}
+                      <div className="absolute inset-0 bg-[linear-gradient(rgba(148,163,184,0.04)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,0.04)_1px,transparent_1px)] bg-[size:16px_16px] pointer-events-none" />
+                      
+                      {/* 水流与绿地微型色块 */}
+                      <div className="absolute w-[180%] h-[150%] -top-1/4 -left-[40%] rotate-6 pointer-events-none flex flex-col space-y-12">
+                        <div className="h-28 bg-emerald-500/5 rounded-full blur-xl w-3/4 self-end" />
+                        <div className="h-20 bg-sky-500/10 rounded-full blur-md w-1/2 self-start" />
+                      </div>
+
+                      {/* 顶角的当前阶段标注 */}
+                      <div className="relative z-10 w-fit bg-slate-800 text-white text-[9px] font-black tracking-wider px-2 py-1 rounded-md shadow-sm flex items-center gap-1">
+                        <MapPin size={10} className="text-cyan-400" />
+                        当前阶段路线地图
+                      </div>
+
+                      {/* 跑道虚线 SVG */}
+                      <svg className="absolute inset-0 w-full h-full p-6 animate-pulse-slow" viewBox="0 0 200 100" fill="none">
+                        {/* 背景浅色缓冲线 */}
+                        <path 
+                          d={mapConfig.path} 
+                          stroke="#cbd5e1" 
+                          strokeWidth="8" 
+                          strokeLinecap="round" 
+                          opacity="0.3" 
+                        />
+                        {/* 前排高光运动轨迹线 (虚线向前滚动) */}
+                        <path 
+                          d={mapConfig.path} 
+                          stroke={activeMode === 1 ? '#ff9f43' : activeMode === 2 ? '#10b981' : '#ff5252'} 
+                          strokeWidth="4" 
+                          strokeDasharray="6 4" 
+                          strokeLinecap="round"
+                          className="animate-dash" 
+                        />
+                      </svg>
+
+                      {/* 散落在地图上的各种小泡泡地标 */}
+                      {mapConfig.points.map((pt, idx) => {
+                        const isStart = pt.type === 'start';
+                        const isEnd = pt.type === 'end';
+                        return (
+                          <div 
+                            key={idx} 
+                            style={{ left: `${pt.x}%`, top: `${pt.y}%` }} 
+                            className="absolute -translate-x-1/2 -translate-y-1/2 z-10 flex flex-col items-center"
+                          >
+                            {/* 地标气泡盒子 */}
+                            <div className="bg-white/95 border border-slate-200 py-0.5 px-2 rounded-md shadow-md text-[8px] font-black pointer-events-none text-slate-705 whitespace-nowrap mb-1">
+                              {pt.name}
+                            </div>
+                            {/* 发光水滴针尖 */}
+                            <div className={`w-2.5 h-2.5 rounded-full border border-white flex items-center justify-center shadow-lg ${
+                              isStart ? 'bg-amber-500' : isEnd ? 'bg-red-500' : 'bg-emerald-500'
+                            }`} />
+                          </div>
+                        );
+                      })}
+
+                      {/* 底部小标志 */}
+                      <div className="relative z-10 text-[9px] text-slate-400 font-mono font-bold flex items-center gap-1 self-end bg-white/40 border border-slate-200/50 py-0.5 px-2 rounded-full backdrop-blur-[2px]">
+                        <Compass size={10} className="text-slate-400 animate-spin-slow" />
+                        TREADMILL GPS ACTIVE
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 右侧：路线景点、路线简介、配速折线图、三大核心数据 */}
+                  <div className="md:col-span-6 flex flex-col justify-between space-y-4">
+                    
+                    {/* 景点和路线简述 */}
+                    <div className="space-y-4">
+                      {/* 景点 */}
+                      <div>
+                        <h4 className="text-[11px] sm:text-xs font-black text-slate-400 tracking-widest uppercase mb-1">
+                          ● 路线景点
+                        </h4>
+                        <p className="text-xs text-slate-700 font-bold bg-slate-105 p-2.5 rounded-xl border border-slate-200/50 leading-relaxed">
+                          {rData.spots}
+                        </p>
+                      </div>
+
+                      {/* 简介 */}
+                      <div>
+                        <h4 className="text-[11px] sm:text-xs font-black text-slate-400 tracking-widest uppercase mb-1">
+                          ● 路线简介
+                        </h4>
+                        <p className="text-xs text-slate-500 font-medium leading-relaxed bg-slate-100/50 p-2.5 rounded-xl border border-slate-200/40">
+                          {rData.intro || "人文荟萃、街巷阡陌，在木卫六实景沉浸式系统的辅佐下，您能细品百年巨变与市井烟火交互的独特神韵。"}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* 配速表 (曲折波动线) */}
+                    <div className="bg-slate-100 border border-slate-200 rounded-2xl p-3 shadow-inner">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-[10px] font-black text-slate-400 tracking-widest uppercase">配速表 (坡度/速度起伏变化)</span>
+                        <span className="text-[11px] font-mono text-slate-500 font-bold">
+                          平均配速: {activeMode === 1 ? '5.2' : activeMode === 2 ? '6.8' : '8.5'} km/h
+                        </span>
+                      </div>
+                      <PaceChart />
+                    </div>
+
+                    {/* 核心数据展示三大白卡 - 预估里程、时长、消耗 */}
+                    <div className="grid grid-cols-3 gap-3">
+                      {/* 里程 */}
+                      <div className="bg-[#f1f5f9] border border-slate-200 rounded-2xl p-3 text-center flex flex-col justify-center">
+                        <span className="text-slate-500 text-[9px] font-black tracking-widest uppercase mb-0.5">预估里程</span>
+                        <span className="text-xl sm:text-2xl font-mono font-black text-slate-800 select-all tracking-tight block">
+                          {stats.distance}
+                        </span>
+                        <span className="text-[9px] text-slate-400 font-mono font-bold block mt-0.5">km</span>
+                      </div>
+
+                      {/* 时长 */}
+                      <div className="bg-[#f1f5f9] border border-slate-200 rounded-2xl p-3 text-center flex flex-col justify-center">
+                        <span className="text-slate-500 text-[9px] font-black tracking-widest uppercase mb-0.5">路线时长</span>
+                        <span className="text-xl sm:text-2xl font-mono font-black text-slate-800 select-all tracking-tight block">
+                          {stats.duration}
+                        </span>
+                        <span className="text-[9px] text-slate-400 font-mono font-bold block mt-0.5">h/min</span>
+                      </div>
+
+                      {/* 消耗 */}
+                      <div className="bg-[#f1f5f9] border border-slate-200 rounded-2xl p-3 text-center flex flex-col justify-center">
+                        <span className="text-slate-500 text-[9px] font-black tracking-widest uppercase mb-0.5">预计消耗</span>
+                        <span className="text-xl sm:text-2xl font-mono font-black text-[#10b981] select-all tracking-tight block">
+                          {stats.calories}
+                        </span>
+                        <span className="text-[9px] text-slate-400 font-mono font-bold block mt-0.5">kcal</span>
+                      </div>
+                    </div>
+
+                  </div>
+
+                </div>
+
+                {/* 底部巨无霸绿色开始运动按钮 */}
+                <div className="p-5 sm:p-6 bg-slate-100 border-t border-slate-200 min-h-[80px] shrink-0 text-center">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowDetailModal(false);
+                      onRouteClick(detailRouteId);
+                    }}
+                    className="w-full py-4 bg-[#10b981] hover:bg-[#059669] text-white text-base font-black rounded-2xl tracking-[0.2em] transition-all cursor-pointer shadow-[0_8px_24px_rgba(16,185,129,0.3)] hover:shadow-[0_12px_32px_rgba(16,185,129,0.45)] hover:scale-[1.01] active:scale-95 text-center flex items-center justify-center gap-2"
+                  >
+                    开始运动
+                  </button>
+                </div>
+
+              </motion.div>
+            </motion.div>
+          );
+        })()}
       </AnimatePresence>
     </div>
   );
